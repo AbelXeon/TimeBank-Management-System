@@ -1,40 +1,43 @@
 import sys
+import os
 import random
-import string
-from datetime import datetime
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, QLineEdit, 
-                            QPushButton, QVBoxLayout, QHBoxLayout, QStackedWidget,
-                            QTableWidget, QTableWidgetItem, QMessageBox, QComboBox,
-                            QDateEdit, QFormLayout, QGroupBox, QHeaderView, QTabWidget)
-from PyQt5.QtCore import Qt, QDate
-from PyQt5.QtGui import QFont, QIcon, QIntValidator, QDoubleValidator
 import sqlite3
+from datetime import datetime
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, QLineEdit, QPushButton,
+                             QVBoxLayout, QHBoxLayout, QMessageBox, QTableWidget, QTableWidgetItem,
+                             QComboBox, QDateEdit, QFormLayout, QTabWidget, QStackedWidget, QHeaderView,
+                             QDialog, QGroupBox, QTextEdit)
+from PyQt5.QtCore import Qt, QDate
+from PyQt5.QtGui import QFont, QPixmap, QIcon
 
-class DatabaseManager:
-    def __init__(self):
-        self.conn = sqlite3.connect('time_banks.db')
-        self.cursor = self.conn.cursor()
-        self.create_tables()
-        self.insert_initial_data()
-        
-    def create_tables(self):
-        # Create all tables with SQLite compatible syntax
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS branch(
+# Database setup
+DB_NAME = "time_bank.db"
+
+
+def initialize_database():
+    if not os.path.exists(DB_NAME):
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        # Create tables
+        cursor.execute("""
+        CREATE TABLE branch(
             branch_id INTEGER PRIMARY KEY NOT NULL,
             branch_name TEXT,
             city TEXT,
             address TEXT
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS department(
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE department(
             dep_id INTEGER PRIMARY KEY NOT NULL,
             dep_name TEXT
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS customer(
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE customer(
             cust_id INTEGER PRIMARY KEY NOT NULL,
             cust_name TEXT,
             dob TEXT,
@@ -42,10 +45,11 @@ class DatabaseManager:
             city TEXT,
             address TEXT,
             email TEXT
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS employee(
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE employee(
             emp_id INTEGER PRIMARY KEY NOT NULL,
             emp_name TEXT,
             gender TEXT CHECK(gender IN ('M', 'F')),
@@ -62,45 +66,49 @@ class DatabaseManager:
             passwords TEXT NOT NULL,
             FOREIGN KEY (dep_id) REFERENCES department(dep_id),
             FOREIGN KEY (branch_id) REFERENCES branch(branch_id)
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS accounts(
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE accounts (
             account_no INTEGER PRIMARY KEY,
             cust_id INTEGER,
             balance REAL,
             opened_date TEXT DEFAULT CURRENT_TIMESTAMP,
             account_type TEXT,
-            account_status TEXT DEFAULT 'Active' CHECK(account_status IN ('Active', 'Inactive', 'Closed')),
+            account_status TEXT CHECK(account_status IN ('Active', 'Inactive', 'Closed')) DEFAULT 'Active',
             interest_rate REAL DEFAULT 0.00,
             minimum_balance REAL DEFAULT 0.00,
             currency TEXT DEFAULT 'ETB',
             FOREIGN KEY (cust_id) REFERENCES customer(cust_id)
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transactions(
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE transactions (
             transaction_id INTEGER PRIMARY KEY AUTOINCREMENT,
             account_no INTEGER NOT NULL, 
             transaction_type TEXT CHECK(transaction_type IN ('Deposit', 'Withdrawal', 'Transfer')) NOT NULL,
             transaction_amount REAL NOT NULL, 
             transaction_date TEXT DEFAULT CURRENT_TIMESTAMP, 
             transaction_description TEXT,
-            transaction_status TEXT DEFAULT 'Pending' CHECK(transaction_status IN ('Pending', 'Completed', 'Failed')), 
-            FOREIGN KEY (account_no) REFERENCES accounts(account_no)
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS employee_branch(
+            transaction_status TEXT CHECK(transaction_status IN ('Pending', 'Completed', 'Failed')) DEFAULT 'Pending', 
+            FOREIGN KEY (account_no) REFERENCES accounts (account_no)
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE employee_branch (
             emp_id INTEGER NOT NULL,
             branch_id INTEGER NOT NULL,
             PRIMARY KEY (emp_id, branch_id),
-            FOREIGN KEY (emp_id) REFERENCES employee(emp_id),
-            FOREIGN KEY (branch_id) REFERENCES branch(branch_id)
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS loan(
+            FOREIGN KEY (emp_id) REFERENCES employee (emp_id),
+            FOREIGN KEY (branch_id) REFERENCES branch (branch_id)
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE loan (
             loan_id INTEGER PRIMARY KEY AUTOINCREMENT,
             cust_id INTEGER NOT NULL,
             account_no INTEGER NOT NULL,
@@ -108,22 +116,24 @@ class DatabaseManager:
             interest_rate REAL NOT NULL,
             start_date TEXT NOT NULL,
             end_date TEXT NOT NULL,
-            status TEXT DEFAULT 'Active' CHECK(status IN ('Active', 'Paid', 'Defaulted')),
-            FOREIGN KEY (cust_id) REFERENCES customer(cust_id),
-            FOREIGN KEY (account_no) REFERENCES accounts(account_no)
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS loan_repayment(
+            status TEXT CHECK(status IN ('Active', 'Paid', 'Defaulted')) DEFAULT 'Active',
+            FOREIGN KEY (cust_id) REFERENCES customer (cust_id),
+            FOREIGN KEY (account_no) REFERENCES accounts (account_no)
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE loan_repayment (
             repayment_id INTEGER PRIMARY KEY AUTOINCREMENT,
             loan_id INTEGER NOT NULL,
             repayment_date TEXT NOT NULL,
             amount_paid REAL NOT NULL,
-            FOREIGN KEY (loan_id) REFERENCES loan(loan_id)
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transaction_log(
+            FOREIGN KEY (loan_id) REFERENCES loan (loan_id)
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE transaction_log (
             log_id INTEGER PRIMARY KEY AUTOINCREMENT,
             transaction_id INTEGER NOT NULL,
             account_no INTEGER NOT NULL,
@@ -131,945 +141,1182 @@ class DatabaseManager:
             transaction_amount REAL NOT NULL,
             transaction_date TEXT NOT NULL,
             transaction_description TEXT,
-            transaction_status TEXT DEFAULT 'Pending' CHECK(transaction_status IN ('Pending', 'Completed', 'Failed')),
+            transaction_status TEXT CHECK(transaction_status IN ('Pending', 'Completed', 'Failed')) DEFAULT 'Pending',
             log_timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (transaction_id) REFERENCES transactions(transaction_id),
-            FOREIGN KEY (account_no) REFERENCES accounts(account_no)
-        )''')
-        
-        self.cursor.execute('''
-        CREATE TABLE IF NOT EXISTS employee_actions(
+            FOREIGN KEY (transaction_id) REFERENCES transactions (transaction_id),
+            FOREIGN KEY (account_no) REFERENCES accounts (account_no)
+        )
+        """)
+
+        cursor.execute("""
+        CREATE TABLE employee_actions (
             action_id INTEGER PRIMARY KEY AUTOINCREMENT,
             emp_id INTEGER NOT NULL,
             action_type TEXT CHECK(action_type IN ('Hire', 'Fire')) NOT NULL,
             action_date TEXT DEFAULT CURRENT_TIMESTAMP,
             details TEXT,
-            FOREIGN KEY (emp_id) REFERENCES employee(emp_id)
-        )''')
-        
-        # Create indexes
-        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_account_no ON transactions (account_no)')
-        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_transaction_date ON transactions (transaction_date)')
-        self.cursor.execute('CREATE INDEX IF NOT EXISTS idx_cust_id ON accounts (cust_id)')
-        
-        self.conn.commit()
-    
-    def insert_initial_data(self):
-        # Check if data already exists
-        self.cursor.execute("SELECT COUNT(*) FROM branch")
-        if self.cursor.fetchone()[0] == 0:
-            # Insert branch data
-            branches = [
-                (1, 'Main Branch', 'Addis Ababa', '22 Bole Road'),
-                (2, 'North Branch', 'Mekele', '15 Hawzen Street'),
-                (3, 'East Branch', 'Dire Dawa', '8 Kebele Avenue'),
-                (4, 'South Branch', 'Hawassa', '3 Lake View Road'),
-                (5, 'West Branch', 'Bahir Dar', '12 Tana Circle')
-            ]
-            self.cursor.executemany("INSERT INTO branch VALUES (?, ?, ?, ?)", branches)
-            
-            # Insert department data
-            departments = [
-                (101, 'Accountant'),
-                (102, 'Manager'),
-                (103, 'Finance'),
-                (104, 'Security'),
-                (105, 'Cleaner'),
-                (107, 'HR')
-            ]
-            self.cursor.executemany("INSERT INTO department VALUES (?, ?)", departments)
-            
-            # Create initial admin accounts for each department
-            employees = [
-                (1, 'Admin HR', 'M', 107, 1, 'HR', 15000, '1990-01-01', 123456789, 
-                 'Addis Ababa', '22 Bole Road', 'hr@timebank.com', 'hr', '123456'),
-                (2, 'Admin Accountant', 'F', 101, 1, 'Accountant', 20000, '1990-01-01', 
-                 123456789, 'Addis Ababa', '22 Bole Road', 'accountant@timebank.com', 'accountant', '123456'),
-                (3, 'Admin Manager', 'M', 102, 1, 'Manager', 30000, '1990-01-01', 
-                 123456789, 'Addis Ababa', '22 Bole Road', 'manager@timebank.com', 'manager', '123456')
-            ]
-            self.cursor.executemany('''
-                INSERT INTO employee VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', employees)
-            
-            self.conn.commit()
+            FOREIGN KEY (emp_id) REFERENCES employee (emp_id)
+        )
+        """)
 
-    def authenticate_user(self, username, password):
-        self.cursor.execute('''
-            SELECT emp_id, emp_name, dep_id, job_title FROM employee 
-            WHERE username = ? AND passwords = ?
-        ''', (username, password))
-        return self.cursor.fetchone()
-    
-    def get_employee_details(self, emp_id):
-        self.cursor.execute('''
-            SELECT e.emp_id, e.emp_name, e.job_title, d.dep_name, b.branch_name 
-            FROM employee e
-            JOIN department d ON e.dep_id = d.dep_id
-            JOIN branch b ON e.branch_id = b.branch_id
-            WHERE e.emp_id = ?
-        ''', (emp_id,))
-        return self.cursor.fetchone()
-    
-    def get_all_employees(self):
-        self.cursor.execute('''
-            SELECT e.emp_id, e.emp_name, e.gender, d.dep_name, b.branch_name, e.job_title, e.salary
-            FROM employee e
-            JOIN department d ON e.dep_id = d.dep_id
-            JOIN branch b ON e.branch_id = b.branch_id
-        ''')
-        return self.cursor.fetchall()
-    
-    def hire_employee(self, emp_data):
-        # Generate random username and password
-        username = ''.join(random.choices(string.ascii_lowercase, k=8))
-        password = ''.join(random.choices(string.digits, k=6))
-        
-        # Determine salary based on job title
-        job_title = emp_data['job_title']
-        salary = {
-            'HR': 15000,
-            'Accountant': 20000,
-            'Security': 5000,
-            'Cleaner': 5000,
-            'Manager': 30000,
-            'Finance': 15000
-        }.get(job_title, 5000)
-        
-        # Get next employee ID
-        self.cursor.execute("SELECT MAX(emp_id) FROM employee")
-        max_id = self.cursor.fetchone()[0] or 0
-        new_id = max_id + 1
-        
-        # Insert employee
-        self.cursor.execute('''
-            INSERT INTO employee VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            new_id, emp_data['emp_name'], emp_data['gender'], emp_data['dep_id'],
-            emp_data['branch_id'], job_title, salary, emp_data['dbo'], emp_data['phone'],
-            emp_data['city'], emp_data['address'], emp_data['email'], username, password
-        ))
-        
-        # Record the hiring action
-        self.cursor.execute('''
-            INSERT INTO employee_actions (emp_id, action_type, details)
-            VALUES (?, ?, ?)
-        ''', (new_id, 'Hire', f'Employee hired as {job_title}'))
-        
-        self.conn.commit()
-        return new_id, username, password
-    
-    def fire_employee(self, emp_id):
-        self.cursor.execute('''
-            DELETE FROM employee WHERE emp_id = ?
-        ''', (emp_id,))
-        
-        # Record the firing action
-        self.cursor.execute('''
-            INSERT INTO employee_actions (emp_id, action_type, details)
-            VALUES (?, ?, ?)
-        ''', (emp_id, 'Fire', 'Employee fired'))
-        
-        self.conn.commit()
-    
-    def get_all_customers(self):
-        self.cursor.execute("SELECT * FROM customer")
-        return self.cursor.fetchall()
-    
-    def create_customer(self, cust_data):
-        # Get next customer ID
-        self.cursor.execute("SELECT MAX(cust_id) FROM customer")
-        max_id = self.cursor.fetchone()[0] or 0
-        new_id = max_id + 1
-        
-        self.cursor.execute('''
-            INSERT INTO customer VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            new_id, cust_data['cust_name'], cust_data['dob'], cust_data['phone'],
-            cust_data['city'], cust_data['address'], cust_data['email']
-        ))
-        
-        self.conn.commit()
-        return new_id
-    
-    def create_account(self, cust_id, account_type, initial_deposit):
-        # Generate random 5-digit account number
-        account_no = random.randint(10000, 99999)
-        
-        # Check if account number already exists
-        while True:
-            self.cursor.execute("SELECT COUNT(*) FROM accounts WHERE account_no = ?", (account_no,))
-            if self.cursor.fetchone()[0] == 0:
-                break
-            account_no = random.randint(10000, 99999)
-        
-        self.cursor.execute('''
-            INSERT INTO accounts (account_no, cust_id, balance, account_type)
-            VALUES (?, ?, ?, ?)
-        ''', (account_no, cust_id, initial_deposit, account_type))
-        
-        # Record initial deposit
-        self.cursor.execute('''
-            INSERT INTO transactions (account_no, transaction_type, transaction_amount, transaction_status)
-            VALUES (?, ?, ?, ?)
-        ''', (account_no, 'Deposit', initial_deposit, 'Completed'))
-        
-        self.conn.commit()
-        return account_no
-    
-    def deposit(self, account_no, amount):
-        self.cursor.execute('''
-            UPDATE accounts SET balance = balance + ? WHERE account_no = ?
-        ''', (amount, account_no))
-        
-        self.cursor.execute('''
-            INSERT INTO transactions (account_no, transaction_type, transaction_amount, transaction_status)
-            VALUES (?, ?, ?, ?)
-        ''', (account_no, 'Deposit', amount, 'Completed'))
-        
-        self.conn.commit()
-    
-    def withdraw(self, account_no, amount):
-        # Check if sufficient balance exists
-        self.cursor.execute('''
-            SELECT balance FROM accounts WHERE account_no = ?
-        ''', (account_no,))
-        balance = self.cursor.fetchone()[0]
-        
-        if balance < amount:
-            return False
-        
-        self.cursor.execute('''
-            UPDATE accounts SET balance = balance - ? WHERE account_no = ?
-        ''', (amount, account_no))
-        
-        self.cursor.execute('''
-            INSERT INTO transactions (account_no, transaction_type, transaction_amount, transaction_status)
-            VALUES (?, ?, ?, ?)
-        ''', (account_no, 'Withdrawal', amount, 'Completed'))
-        
-        self.conn.commit()
-        return True
-    
-    def get_account_balance(self, account_no):
-        self.cursor.execute('''
-            SELECT balance FROM accounts WHERE account_no = ?
-        ''', (account_no,))
-        result = self.cursor.fetchone()
-        return result[0] if result else None
-    
-    def get_account_transactions(self, account_no):
-        self.cursor.execute('''
-            SELECT transaction_id, transaction_type, transaction_amount, transaction_date
-            FROM transactions WHERE account_no = ?
-            ORDER BY transaction_date DESC
-        ''', (account_no,))
-        return self.cursor.fetchall()
-    
-    def get_bank_metrics(self):
-        metrics = {}
-        
-        self.cursor.execute("SELECT COUNT(*) FROM employee")
-        metrics['total_employees'] = self.cursor.fetchone()[0]
-        
-        self.cursor.execute("SELECT SUM(balance) FROM accounts")
-        metrics['total_bank_balance'] = self.cursor.fetchone()[0] or 0
-        
-        self.cursor.execute("SELECT COUNT(*) FROM accounts")
-        metrics['total_accounts'] = self.cursor.fetchone()[0]
-        
-        return metrics
-    
-    def get_departments(self):
-        self.cursor.execute("SELECT * FROM department")
-        return self.cursor.fetchall()
-    
-    def get_branches(self):
-        self.cursor.execute("SELECT * FROM branch")
-        return self.cursor.fetchall()
-    
-    def close(self):
-        self.conn.close()
+        # Insert initial data
+        branches = [
+            (1, 'Main Branch', 'Addis Ababa', '22 Bole Road'),
+            (2, 'North Branch', 'Mekele', '15 Hawzen Street'),
+            (3, 'East Branch', 'Dire Dawa', '8 Kebele Avenue'),
+            (4, 'South Branch', 'Hawassa', '3 Lake View Road'),
+            (5, 'West Branch', 'Bahir Dar', '12 Tana Circle')
+        ]
+        cursor.executemany("INSERT INTO branch VALUES (?, ?, ?, ?)", branches)
 
-class LoginWindow(QWidget):
-    def __init__(self, db_manager, main_window):
+        departments = [
+            (101, 'Accountant'),
+            (102, 'Manager'),
+            (103, 'Finance'),
+            (104, 'Security'),
+            (105, 'Cleaner'),
+            (107, 'HR')
+        ]
+        cursor.executemany("INSERT INTO department VALUES (?, ?)", departments)
+
+        # Create initial admin accounts
+        initial_employees = [
+            (1001, 'Admin Manager', 'M', 102, 1, 'Manager', 30000, '1980-01-01', 911223344, 'Addis Ababa',
+             '22 Bole Road', 'manager@timebank.com', 'manager', '123456'),
+            (1002, 'Admin HR', 'F', 107, 1, 'HR', 15000, '1985-05-15', 922334455, 'Addis Ababa', '22 Bole Road',
+             'hr@timebank.com', 'hr', '123456'),
+            (1003, 'Admin Accountant', 'M', 101, 1, 'Accountant', 20000, '1982-03-10', 933445566, 'Addis Ababa',
+             '22 Bole Road', 'accountant@timebank.com', 'accountant', '123456')
+        ]
+        cursor.executemany("""
+        INSERT INTO employee (emp_id, emp_name, gender, dep_id, branch_id, job_title, salary, dbo, phone, city, address, email, username, passwords)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, initial_employees)
+
+        conn.commit()
+        conn.close()
+
+
+initialize_database()
+
+
+class LoginWindow(QMainWindow):
+    def __init__(self):
         super().__init__()
-        self.db_manager = db_manager
-        self.main_window = main_window
-        self.current_user = None
-        self.init_ui()
-        
-    def init_ui(self):
+        self.setWindowTitle("Time International Bank - Login")
+        self.setFixedSize(400, 300)
+
+        # Set window icon
+        self.setWindowIcon(QIcon(":bank.png"))
+
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        # Layout
         layout = QVBoxLayout()
-        
-        # Header
-        header = QLabel("Time International Bank")
-        header.setFont(QFont('Arial', 20, QFont.Bold))
-        header.setAlignment(Qt.AlignCenter)
-        layout.addWidget(header)
-        
-        # Logo/Image placeholder
-        logo = QLabel("🏦")
-        logo.setFont(QFont('Arial', 50))
-        logo.setAlignment(Qt.AlignCenter)
-        layout.addWidget(logo)
-        
-        # Login Form
+        central_widget.setLayout(layout)
+
+        # Title
+        title_label = QLabel("Time International Bank")
+        title_label.setAlignment(Qt.AlignCenter)
+        title_label.setStyleSheet("font-size: 24px; font-weight: bold; color: #2c3e50; margin-bottom: 30px;")
+        layout.addWidget(title_label)
+
+        # Logo (placeholder)
+        logo_label = QLabel()
+        logo_label.setPixmap(QPixmap(":bank.png").scaled(80, 80, Qt.KeepAspectRatio))
+        logo_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(logo_label)
+
+        # Form layout
         form_layout = QFormLayout()
-        
+        form_layout.setHorizontalSpacing(20)
+        form_layout.setVerticalSpacing(15)
+
+        # Username
         self.username_input = QLineEdit()
         self.username_input.setPlaceholderText("Enter your username")
+        self.username_input.setStyleSheet("padding: 8px; border-radius: 5px; border: 1px solid #ddd;")
         form_layout.addRow("Username:", self.username_input)
-        
+
+        # Password
         self.password_input = QLineEdit()
         self.password_input.setPlaceholderText("Enter your password")
         self.password_input.setEchoMode(QLineEdit.Password)
+        self.password_input.setStyleSheet("padding: 8px; border-radius: 5px; border: 1px solid #ddd;")
         form_layout.addRow("Password:", self.password_input)
-        
+
         layout.addLayout(form_layout)
-        
-        # Login Button
-        login_btn = QPushButton("Login")
-        login_btn.clicked.connect(self.handle_login)
-        login_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px;")
-        layout.addWidget(login_btn)
-        
+
+        # Login button
+        login_button = QPushButton("Login")
+        login_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        login_button.clicked.connect(self.authenticate)
+        layout.addWidget(login_button)
+
+        # Spacer
+        layout.addStretch()
+
         # Footer
-        footer = QLabel("© 2023 Time International Bank. All rights reserved.")
-        footer.setAlignment(Qt.AlignCenter)
-        footer.setStyleSheet("color: gray;")
-        layout.addWidget(footer)
-        
-        self.setLayout(layout)
-    
-    def handle_login(self):
+        footer_label = QLabel("© 2023 Time International Bank. All rights reserved.")
+        footer_label.setAlignment(Qt.AlignCenter)
+        footer_label.setStyleSheet("font-size: 10px; color: #7f8c8d;")
+        layout.addWidget(footer_label)
+
+        # Initialize main window reference
+        self.main_window = None
+
+    def authenticate(self):
         username = self.username_input.text()
         password = self.password_input.text()
-        
+
         if not username or not password:
             QMessageBox.warning(self, "Error", "Please enter both username and password")
             return
-        
-        user_data = self.db_manager.authenticate_user(username, password)
-        
-        if user_data:
-            emp_id, emp_name, dep_id, job_title = user_data
-            self.current_user = {'emp_id': emp_id, 'emp_name': emp_name, 'dep_id': dep_id, 'job_title': job_title}
-            
-            # Create dashboards based on user role
-            self.main_window.create_dashboards(self.current_user)
-            
-            # Determine which dashboard to show based on department
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT emp_id, emp_name, dep_id, job_title FROM employee 
+        WHERE username = ? AND passwords = ?
+        """, (username, password))
+
+        result = cursor.fetchone()
+        conn.close()
+
+        if result:
+            emp_id, emp_name, dep_id, job_title = result
+
+            # Determine dashboard based on department
             if dep_id == 107:  # HR
-                self.main_window.stacked_widget.setCurrentIndex(1)
-                self.main_window.hr_dashboard.load_data()
+                self.main_window = HRDashboard(emp_id, emp_name)
             elif dep_id == 101:  # Accountant
-                self.main_window.stacked_widget.setCurrentIndex(2)
-                self.main_window.accountant_dashboard.load_data()
+                self.main_window = AccountantDashboard(emp_id, emp_name)
             elif dep_id == 102:  # Manager
-                self.main_window.stacked_widget.setCurrentIndex(3)
-                self.main_window.manager_dashboard.load_data()
+                self.main_window = ManagerDashboard(emp_id, emp_name)
             else:
-                QMessageBox.warning(self, "Access Denied", "You don't have access to any dashboard")
+                QMessageBox.warning(self, "Access Denied", "Your role doesn't have access to any dashboard")
+                return
+
+            self.main_window.show()
+            self.hide()
         else:
             QMessageBox.warning(self, "Login Failed", "Invalid username or password")
 
-class HRDashboard(QWidget):
-    def __init__(self, db_manager, main_window, current_user):
+
+class DashboardTemplate(QMainWindow):
+    def __init__(self, emp_id, emp_name, title):
         super().__init__()
-        self.db_manager = db_manager
-        self.main_window = main_window
-        self.current_user = current_user
-        self.init_ui()
-        
-    def init_ui(self):
-        layout = QVBoxLayout()
-        
+        self.emp_id = emp_id
+        self.emp_name = emp_name
+        self.setWindowTitle(f"Time International Bank - {title}")
+        self.setMinimumSize(1000, 700)
+
+        # Set window icon
+        self.setWindowIcon(QIcon(":bank.png"))
+
+        # Central widget
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        # Main layout
+        main_layout = QVBoxLayout()
+        central_widget.setLayout(main_layout)
+
         # Header
-        header = QLabel("HR Dashboard - Time International Bank")
-        header.setFont(QFont('Arial', 16, QFont.Bold))
-        header.setAlignment(Qt.AlignCenter)
-        layout.addWidget(header)
-        
+        header = QWidget()
+        header.setStyleSheet("background-color: #2c3e50; padding: 15px;")
+        header_layout = QHBoxLayout()
+        header.setLayout(header_layout)
+
+        # Bank logo and name
+        logo_label = QLabel()
+        logo_label.setPixmap(QPixmap(":bank.png").scaled(40, 40, Qt.KeepAspectRatio))
+        header_layout.addWidget(logo_label)
+
+        bank_name = QLabel("Time International Bank")
+        bank_name.setStyleSheet("font-size: 20px; font-weight: bold; color: white;")
+        header_layout.addWidget(bank_name)
+
+        header_layout.addStretch()
+
         # User info
-        user_info = QLabel(f"Welcome, {self.current_user['emp_name']} (ID: {self.current_user['emp_id']})")
-        user_info.setAlignment(Qt.AlignRight)
-        layout.addWidget(user_info)
-        
+        user_info = QLabel(f"{self.emp_name} (ID: {self.emp_id})")
+        user_info.setStyleSheet("font-size: 14px; color: white;")
+        header_layout.addWidget(user_info)
+
+        # Logout button
+        logout_button = QPushButton("Logout")
+        logout_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                padding: 5px 10px;
+                border-radius: 3px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        logout_button.clicked.connect(self.logout)
+        header_layout.addWidget(logout_button)
+
+        main_layout.addWidget(header)
+
+        # Content area
+        self.content_area = QWidget()
+        main_layout.addWidget(self.content_area)
+
+        # Footer
+        footer = QLabel("© 2023 Time International Bank. All rights reserved.")
+        footer.setAlignment(Qt.AlignCenter)
+        footer.setStyleSheet("font-size: 10px; color: #7f8c8d; padding: 10px;")
+        main_layout.addWidget(footer)
+
+    def logout(self):
+        self.login_window = LoginWindow()
+        self.login_window.show()
+        self.close()
+
+
+class HRDashboard(DashboardTemplate):
+    def __init__(self, emp_id, emp_name):
+        super().__init__(emp_id, emp_name, "HR Dashboard")
+
+        # Content layout
+        content_layout = QVBoxLayout()
+        self.content_area.setLayout(content_layout)
+
         # Tabs
         tabs = QTabWidget()
-        
+        content_layout.addWidget(tabs)
+
         # Hire Employee Tab
         hire_tab = QWidget()
         hire_layout = QVBoxLayout()
-        
-        # Hire Form
+        hire_tab.setLayout(hire_layout)
+
+        # Hire form
         hire_form = QGroupBox("Hire New Employee")
-        form_layout = QFormLayout()
-        
+        hire_form_layout = QFormLayout()
+        hire_form.setLayout(hire_form_layout)
+
         self.emp_name_input = QLineEdit()
-        form_layout.addRow("Full Name:", self.emp_name_input)
-        
+        self.emp_name_input.setPlaceholderText("Full Name")
+        hire_form_layout.addRow("Full Name:", self.emp_name_input)
+
         self.gender_combo = QComboBox()
-        self.gender_combo.addItems(['M', 'F'])
-        form_layout.addRow("Gender:", self.gender_combo)
-        
-        # Department dropdown
-        departments = self.db_manager.get_departments()
-        self.dep_combo = QComboBox()
-        for dep_id, dep_name in departments:
-            self.dep_combo.addItem(dep_name, dep_id)
-        form_layout.addRow("Department:", self.dep_combo)
-        
-        # Branch dropdown
-        branches = self.db_manager.get_branches()
+        self.gender_combo.addItems(["M", "F"])
+        hire_form_layout.addRow("Gender:", self.gender_combo)
+
         self.branch_combo = QComboBox()
-        for branch_id, branch_name, city, address in branches:
-            self.branch_combo.addItem(f"{branch_name} - {city}", branch_id)
-        form_layout.addRow("Branch:", self.branch_combo)
-        
-        # Job title dropdown with automatic salary
-        self.job_combo = QComboBox()
-        self.job_combo.addItems(['HR', 'Accountant', 'Security', 'Cleaner', 'Manager', 'Finance'])
-        self.job_combo.currentTextChanged.connect(self.update_salary_display)
-        form_layout.addRow("Job Title:", self.job_combo)
-        
-        self.salary_display = QLabel("Salary: 0 ETB")
-        form_layout.addRow("Salary:", self.salary_display)
-        
+        self.populate_branches()
+        hire_form_layout.addRow("Branch:", self.branch_combo)
+
+        self.job_title_combo = QComboBox()
+        self.job_title_combo.addItems(["HR", "Accountant", "Manager", "Finance", "Security", "Cleaner"])
+        self.job_title_combo.currentTextChanged.connect(self.update_salary)
+        hire_form_layout.addRow("Job Title:", self.job_title_combo)
+
+        self.salary_input = QLineEdit()
+        self.salary_input.setReadOnly(True)
+        hire_form_layout.addRow("Salary:", self.salary_input)
+
         self.dob_input = QDateEdit()
         self.dob_input.setCalendarPopup(True)
-        self.dob_input.setMaximumDate(QDate.currentDate())
-        form_layout.addRow("Date of Birth:", self.dob_input)
-        
+        self.dob_input.setDate(QDate.currentDate().addYears(-20))
+        hire_form_layout.addRow("Date of Birth:", self.dob_input)
+
         self.phone_input = QLineEdit()
-        self.phone_input.setValidator(QIntValidator())
-        form_layout.addRow("Phone:", self.phone_input)
-        
+        self.phone_input.setPlaceholderText("Phone Number")
+        hire_form_layout.addRow("Phone:", self.phone_input)
+
         self.city_input = QLineEdit()
-        form_layout.addRow("City:", self.city_input)
-        
+        self.city_input.setPlaceholderText("City")
+        hire_form_layout.addRow("City:", self.city_input)
+
         self.address_input = QLineEdit()
-        form_layout.addRow("Address:", self.address_input)
-        
+        self.address_input.setPlaceholderText("Address")
+        hire_form_layout.addRow("Address:", self.address_input)
+
         self.email_input = QLineEdit()
-        form_layout.addRow("Email:", self.email_input)
-        
-        hire_form.setLayout(form_layout)
+        self.email_input.setPlaceholderText("Email")
+        hire_form_layout.addRow("Email:", self.email_input)
+
+        hire_button = QPushButton("Hire Employee")
+        hire_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #219653;
+            }
+        """)
+        hire_button.clicked.connect(self.hire_employee)
+        hire_form_layout.addRow(hire_button)
+
         hire_layout.addWidget(hire_form)
-        
-        hire_btn = QPushButton("Hire Employee")
-        hire_btn.clicked.connect(self.hire_employee)
-        hire_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px;")
-        hire_layout.addWidget(hire_btn)
-        
-        hire_tab.setLayout(hire_layout)
-        
+
         # Fire Employee Tab
         fire_tab = QWidget()
         fire_layout = QVBoxLayout()
-        
-        # Employees Table
-        self.employees_table = QTableWidget()
-        self.employees_table.setColumnCount(7)
-        self.employees_table.setHorizontalHeaderLabels([
-            "ID", "Name", "Gender", "Department", "Branch", "Job Title", "Salary"
-        ])
-        self.employees_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        
-        fire_layout.addWidget(self.employees_table)
-        
-        fire_btn = QPushButton("Fire Selected Employee")
-        fire_btn.clicked.connect(self.fire_employee)
-        fire_btn.setStyleSheet("background-color: #f44336; color: white; padding: 8px;")
-        fire_layout.addWidget(fire_btn)
-        
         fire_tab.setLayout(fire_layout)
-        
+
+        # Fire form
+        fire_form = QGroupBox("Fire Employee")
+        fire_form_layout = QFormLayout()
+        fire_form.setLayout(fire_form_layout)
+
+        self.emp_id_input = QLineEdit()
+        self.emp_id_input.setPlaceholderText("Employee ID")
+        fire_form_layout.addRow("Employee ID:", self.emp_id_input)
+
+        fire_button = QPushButton("Fire Employee")
+        fire_button.setStyleSheet("""
+            QPushButton {
+                background-color: #e74c3c;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        fire_button.clicked.connect(self.fire_employee)
+        fire_form_layout.addRow(fire_button)
+
+        fire_layout.addWidget(fire_form)
+
+        # Employee List Tab
+        list_tab = QWidget()
+        list_layout = QVBoxLayout()
+        list_tab.setLayout(list_layout)
+
+        self.employee_table = QTableWidget()
+        self.employee_table.setColumnCount(8)
+        self.employee_table.setHorizontalHeaderLabels(
+            ["ID", "Name", "Job Title", "Salary", "Branch", "Phone", "Email", "Status"])
+        self.employee_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.employee_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.employee_table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        list_layout.addWidget(self.employee_table)
+
+        refresh_button = QPushButton("Refresh List")
+        refresh_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        refresh_button.clicked.connect(self.populate_employee_table)
+        list_layout.addWidget(refresh_button)
+
+        # Add tabs
         tabs.addTab(hire_tab, "Hire Employee")
         tabs.addTab(fire_tab, "Fire Employee")
-        
-        layout.addWidget(tabs)
-        
-        # Logout Button
-        logout_btn = QPushButton("Logout")
-        logout_btn.clicked.connect(self.logout)
-        logout_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 8px;")
-        layout.addWidget(logout_btn)
-        
-        self.setLayout(layout)
-    
-    def update_salary_display(self, job_title):
-        salary = {
-            'HR': 15000,
-            'Accountant': 20000,
-            'Security': 5000,
-            'Cleaner': 5000,
-            'Manager': 30000,
-            'Finance': 15000
-        }.get(job_title, 0)
-        self.salary_display.setText(f"Salary: {salary} ETB")
-    
-    def load_data(self):
-        employees = self.db_manager.get_all_employees()
-        self.employees_table.setRowCount(len(employees))
-        
-        for row, emp in enumerate(employees):
-            for col, data in enumerate(emp):
-                item = QTableWidgetItem(str(data))
-                item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-                self.employees_table.setItem(row, col, item)
-    
-    def hire_employee(self):
-        emp_data = {
-            'emp_name': self.emp_name_input.text(),
-            'gender': self.gender_combo.currentText(),
-            'dep_id': self.dep_combo.currentData(),
-            'branch_id': self.branch_combo.currentData(),
-            'job_title': self.job_combo.currentText(),
-            'dbo': self.dob_input.date().toString("yyyy-MM-dd"),
-            'phone': int(self.phone_input.text()) if self.phone_input.text() else 0,
-            'city': self.city_input.text(),
-            'address': self.address_input.text(),
-            'email': self.email_input.text()
+        tabs.addTab(list_tab, "Employee List")
+
+        # Populate initial data
+        self.populate_employee_table()
+
+    def populate_branches(self):
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+        cursor.execute("SELECT branch_id, branch_name FROM branch")
+        branches = cursor.fetchall()
+        conn.close()
+
+        self.branch_combo.clear()
+        for branch_id, branch_name in branches:
+            self.branch_combo.addItem(branch_name, branch_id)
+
+    def update_salary(self, job_title):
+        salaries = {
+            "HR": 15000,
+            "Accountant": 20000,
+            "Manager": 30000,
+            "Finance": 15000,
+            "Security": 5000,
+            "Cleaner": 5000
         }
-        
-        # Validate data
-        if not emp_data['emp_name']:
-            QMessageBox.warning(self, "Error", "Please enter employee name")
+        self.salary_input.setText(f"{salaries.get(job_title, 0):,.2f}")
+
+    def hire_employee(self):
+        # Get all input values
+        emp_name = self.emp_name_input.text()
+        gender = self.gender_combo.currentText()
+        branch_id = self.branch_combo.currentData()
+        job_title = self.job_title_combo.currentText()
+        salary = float(self.salary_input.text().replace(",", ""))
+        dob = self.dob_input.date().toString("yyyy-MM-dd")
+        phone = self.phone_input.text()
+        city = self.city_input.text()
+        address = self.address_input.text()
+        email = self.email_input.text()
+
+        if not emp_name or not phone or not city or not address or not email:
+            QMessageBox.warning(self, "Error", "Please fill all required fields")
             return
-        
+
+        # Determine department based on job title
+        dep_id = {
+            "HR": 107,
+            "Accountant": 101,
+            "Manager": 102,
+            "Finance": 103,
+            "Security": 104,
+            "Cleaner": 105
+        }.get(job_title, 101)
+
+        # Generate random employee ID
+        emp_id = random.randint(1000, 9999)
+
+        # Generate random username and password
+        username = f"{emp_name.split()[0].lower()}{random.randint(100, 999)}"
+        password = str(random.randint(100000, 999999))
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
         try:
-            emp_id, username, password = self.db_manager.hire_employee(emp_data)
-            
+            # Insert employee
+            cursor.execute("""
+            INSERT INTO employee (emp_id, emp_name, gender, dep_id, branch_id, job_title, salary, dbo, phone, city, address, email, username, passwords)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (emp_id, emp_name, gender, dep_id, branch_id, job_title, salary, dob, phone, city, address, email,
+                  username, password))
+
+            # Insert into employee_branch
+            cursor.execute("INSERT INTO employee_branch (emp_id, branch_id) VALUES (?, ?)", (emp_id, branch_id))
+
+            # Log the action
+            cursor.execute("""
+            INSERT INTO employee_actions (emp_id, action_type, details)
+            VALUES (?, ?, ?)
+            """, (self.emp_id, "Hire", f"Hired {emp_name} as {job_title}"))
+
+            conn.commit()
+
             # Show success message with credentials
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Information)
-            msg.setWindowTitle("Employee Hired Successfully")
-            msg.setText(f"Employee hired successfully!\n\nID: {emp_id}\nUsername: {username}\nPassword: {password}")
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
-            
+            QMessageBox.information(
+                self, "Employee Hired",
+                f"Employee hired successfully!\n\nID: {emp_id}\nUsername: {username}\nPassword: {password}\n\nPlease provide these credentials to the employee."
+            )
+
             # Clear form
             self.emp_name_input.clear()
             self.phone_input.clear()
             self.city_input.clear()
             self.address_input.clear()
             self.email_input.clear()
-            
-            # Refresh employee list
-            self.load_data()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to hire employee: {str(e)}")
-    
+
+            # Refresh employee table
+            self.populate_employee_table()
+
+        except sqlite3.IntegrityError as e:
+            QMessageBox.warning(self, "Error", f"Failed to hire employee: {str(e)}")
+        finally:
+            conn.close()
+
     def fire_employee(self):
-        selected_row = self.employees_table.currentRow()
-        if selected_row == -1:
-            QMessageBox.warning(self, "Error", "Please select an employee to fire")
+        emp_id = self.emp_id_input.text()
+
+        if not emp_id:
+            QMessageBox.warning(self, "Error", "Please enter an employee ID")
             return
-        
-        emp_id = int(self.employees_table.item(selected_row, 0).text())
-        emp_name = self.employees_table.item(selected_row, 1).text()
-        
+
+        try:
+            emp_id = int(emp_id)
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Employee ID must be a number")
+            return
+
+        # Confirm firing
         reply = QMessageBox.question(
-            self, 'Confirm Fire',
-            f"Are you sure you want to fire {emp_name} (ID: {emp_id})?",
+            self, "Confirm Fire",
+            f"Are you sure you want to fire employee ID {emp_id}?",
             QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
-        
-        if reply == QMessageBox.Yes:
-            try:
-                self.db_manager.fire_employee(emp_id)
-                QMessageBox.information(self, "Success", "Employee fired successfully")
-                self.load_data()
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to fire employee: {str(e)}")
-    
-    def logout(self):
-        self.main_window.stacked_widget.setCurrentIndex(0)
 
-class AccountantDashboard(QWidget):
-    def __init__(self, db_manager, main_window, current_user):
-        super().__init__()
-        self.db_manager = db_manager
-        self.main_window = main_window
-        self.current_user = current_user
-        self.init_ui()
-        
-    def init_ui(self):
-        layout = QVBoxLayout()
-        
-        # Header
-        header = QLabel("Accountant Dashboard - Time International Bank")
-        header.setFont(QFont('Arial', 16, QFont.Bold))
-        header.setAlignment(Qt.AlignCenter)
-        layout.addWidget(header)
-        
-        # User info
-        user_info = QLabel(f"Welcome, {self.current_user['emp_name']} (ID: {self.current_user['emp_id']})")
-        user_info.setAlignment(Qt.AlignRight)
-        layout.addWidget(user_info)
-        
+        if reply == QMessageBox.No:
+            return
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        try:
+            # Get employee name before firing
+            cursor.execute("SELECT emp_name FROM employee WHERE emp_id = ?", (emp_id,))
+            result = cursor.fetchone()
+
+            if not result:
+                QMessageBox.warning(self, "Error", "Employee not found")
+                return
+
+            emp_name = result[0]
+
+            # Fire employee (set job_title to NULL)
+            cursor.execute("UPDATE employee SET job_title = NULL WHERE emp_id = ?", (emp_id,))
+
+            # Log the action
+            cursor.execute("""
+            INSERT INTO employee_actions (emp_id, action_type, details)
+            VALUES (?, ?, ?)
+            """, (self.emp_id, "Fire", f"Fired {emp_name} (ID: {emp_id})"))
+
+            conn.commit()
+
+            QMessageBox.information(self, "Success", f"Employee {emp_name} (ID: {emp_id}) has been fired")
+
+            # Clear input and refresh table
+            self.emp_id_input.clear()
+            self.populate_employee_table()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to fire employee: {str(e)}")
+        finally:
+            conn.close()
+
+    def populate_employee_table(self):
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        cursor.execute("""
+        SELECT e.emp_id, e.emp_name, e.job_title, e.salary, b.branch_name, e.phone, e.email, 
+               CASE WHEN e.job_title IS NULL THEN 'Fired' ELSE 'Active' END as status
+        FROM employee e
+        LEFT JOIN branch b ON e.branch_id = b.branch_id
+        ORDER BY e.emp_id
+        """)
+
+        employees = cursor.fetchall()
+        conn.close()
+
+        self.employee_table.setRowCount(len(employees))
+
+        for row_idx, employee in enumerate(employees):
+            for col_idx, value in enumerate(employee):
+                if col_idx == 3:  # Salary column
+                    item = QTableWidgetItem(f"{value:,.2f}")
+                else:
+                    item = QTableWidgetItem(str(value))
+
+                item.setTextAlignment(Qt.AlignCenter)
+                self.employee_table.setItem(row_idx, col_idx, item)
+
+
+class AccountantDashboard(DashboardTemplate):
+    def __init__(self, emp_id, emp_name):
+        super().__init__(emp_id, emp_name, "Accountant Dashboard")
+
+        # Content layout
+        content_layout = QVBoxLayout()
+        self.content_area.setLayout(content_layout)
+
         # Tabs
         tabs = QTabWidget()
-        
+        content_layout.addWidget(tabs)
+
         # Create Account Tab
         create_account_tab = QWidget()
         create_account_layout = QVBoxLayout()
-        
-        # Customer Form
-        customer_form = QGroupBox("Customer Information")
+        create_account_tab.setLayout(create_account_layout)
+
+        # Create account form
+        create_account_form = QGroupBox("Create New Account")
         form_layout = QFormLayout()
-        
+        create_account_form.setLayout(form_layout)
+
         self.cust_name_input = QLineEdit()
-        form_layout.addRow("Full Name:", self.cust_name_input)
-        
+        self.cust_name_input.setPlaceholderText("Full Name")
+        form_layout.addRow("Customer Name:", self.cust_name_input)
+
         self.cust_dob_input = QDateEdit()
         self.cust_dob_input.setCalendarPopup(True)
-        self.cust_dob_input.setMaximumDate(QDate.currentDate())
+        self.cust_dob_input.setDate(QDate.currentDate().addYears(-20))
         form_layout.addRow("Date of Birth:", self.cust_dob_input)
-        
+
         self.cust_phone_input = QLineEdit()
-        self.cust_phone_input.setValidator(QIntValidator())
+        self.cust_phone_input.setPlaceholderText("Phone Number")
         form_layout.addRow("Phone:", self.cust_phone_input)
-        
+
         self.cust_city_input = QLineEdit()
+        self.cust_city_input.setPlaceholderText("City")
         form_layout.addRow("City:", self.cust_city_input)
-        
+
         self.cust_address_input = QLineEdit()
+        self.cust_address_input.setPlaceholderText("Address")
         form_layout.addRow("Address:", self.cust_address_input)
-        
+
         self.cust_email_input = QLineEdit()
+        self.cust_email_input.setPlaceholderText("Email")
         form_layout.addRow("Email:", self.cust_email_input)
-        
-        customer_form.setLayout(form_layout)
-        create_account_layout.addWidget(customer_form)
-        
-        # Account Form
-        account_form = QGroupBox("Account Information")
-        account_form_layout = QFormLayout()
-        
+
         self.account_type_combo = QComboBox()
-        self.account_type_combo.addItems(['Savings', 'Checking', 'Business'])
-        account_form_layout.addRow("Account Type:", self.account_type_combo)
-        
+        self.account_type_combo.addItems(["Savings", "Checking", "Business"])
+        form_layout.addRow("Account Type:", self.account_type_combo)
+
         self.initial_deposit_input = QLineEdit()
-        self.initial_deposit_input.setValidator(QDoubleValidator())
-        self.initial_deposit_input.setText("0")
-        account_form_layout.addRow("Initial Deposit (ETB):", self.initial_deposit_input)
-        
-        account_form.setLayout(account_form_layout)
-        create_account_layout.addWidget(account_form)
-        
-        create_account_btn = QPushButton("Create Account")
-        create_account_btn.clicked.connect(self.create_account)
-        create_account_btn.setStyleSheet("background-color: #4CAF50; color: white; padding: 8px;")
-        create_account_layout.addWidget(create_account_btn)
-        
-        create_account_tab.setLayout(create_account_layout)
-        
+        self.initial_deposit_input.setPlaceholderText("0.00")
+        form_layout.addRow("Initial Deposit:", self.initial_deposit_input)
+
+        create_button = QPushButton("Create Account")
+        create_button.setStyleSheet("""
+            QPushButton {
+                background-color: #27ae60;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #219653;
+            }
+        """)
+        create_button.clicked.connect(self.create_account)
+        form_layout.addRow(create_button)
+
+        create_account_layout.addWidget(create_account_form)
+
         # Transaction Tab
         transaction_tab = QWidget()
         transaction_layout = QVBoxLayout()
-        
-        # Account Selection
-        account_group = QGroupBox("Account Selection")
-        account_form = QFormLayout()
-        
-        self.account_no_input = QLineEdit()
-        self.account_no_input.setValidator(QIntValidator())
-        account_form.addRow("Account Number:", self.account_no_input)
-        
-        self.check_balance_btn = QPushButton("Check Balance")
-        self.check_balance_btn.clicked.connect(self.check_balance)
-        account_form.addRow(self.check_balance_btn)
-        
-        self.balance_display = QLabel("Balance: 0 ETB")
-        account_form.addRow("Current Balance:", self.balance_display)
-        
-        account_group.setLayout(account_form)
-        transaction_layout.addWidget(account_group)
-        
-        # Transaction Form
-        trans_group = QGroupBox("Transaction")
-        trans_form = QFormLayout()
-        
-        self.trans_type_combo = QComboBox()
-        self.trans_type_combo.addItems(['Deposit', 'Withdrawal'])
-        trans_form.addRow("Transaction Type:", self.trans_type_combo)
-        
-        self.trans_amount_input = QLineEdit()
-        self.trans_amount_input.setValidator(QDoubleValidator())
-        trans_form.addRow("Amount (ETB):", self.trans_amount_input)
-        
-        trans_group.setLayout(trans_form)
-        transaction_layout.addWidget(trans_group)
-        
-        trans_btn = QPushButton("Process Transaction")
-        trans_btn.clicked.connect(self.process_transaction)
-        trans_btn.setStyleSheet("background-color: #2196F3; color: white; padding: 8px;")
-        transaction_layout.addWidget(trans_btn)
-        
-        # Transaction History
-        self.trans_history_table = QTableWidget()
-        self.trans_history_table.setColumnCount(4)
-        self.trans_history_table.setHorizontalHeaderLabels([
-            "ID", "Type", "Amount", "Date"
-        ])
-        self.trans_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        
-        transaction_layout.addWidget(QLabel("Transaction History:"))
-        transaction_layout.addWidget(self.trans_history_table)
-        
         transaction_tab.setLayout(transaction_layout)
-        
+
+        # Transaction form
+        transaction_form = QGroupBox("Account Transactions")
+        transaction_form_layout = QFormLayout()
+        transaction_form.setLayout(transaction_form_layout)
+
+        self.account_no_input = QLineEdit()
+        self.account_no_input.setPlaceholderText("Account Number")
+        transaction_form_layout.addRow("Account Number:", self.account_no_input)
+
+        self.transaction_type_combo = QComboBox()
+        self.transaction_type_combo.addItems(["Deposit", "Withdrawal"])
+        transaction_form_layout.addRow("Transaction Type:", self.transaction_type_combo)
+
+        self.amount_input = QLineEdit()
+        self.amount_input.setPlaceholderText("Amount")
+        transaction_form_layout.addRow("Amount:", self.amount_input)
+
+        self.description_input = QLineEdit()
+        self.description_input.setPlaceholderText("Description (optional)")
+        transaction_form_layout.addRow("Description:", self.description_input)
+
+        transaction_button = QPushButton("Process Transaction")
+        transaction_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 5px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        transaction_button.clicked.connect(self.process_transaction)
+        transaction_form_layout.addRow(transaction_button)
+
+        transaction_layout.addWidget(transaction_form)
+
+        # Account Info Tab
+        info_tab = QWidget()
+        info_layout = QVBoxLayout()
+        info_tab.setLayout(info_layout)
+
+        # Account info form
+        info_form = QGroupBox("Account Information")
+        info_form_layout = QFormLayout()
+        info_form.setLayout(info_form_layout)
+
+        self.search_account_input = QLineEdit()
+        self.search_account_input.setPlaceholderText("Account Number or Customer Name")
+        info_form_layout.addRow("Search:", self.search_account_input)
+
+        search_button = QPushButton("Search")
+        search_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        search_button.clicked.connect(self.search_account)
+        info_form_layout.addRow(search_button)
+
+        self.account_info_text = QTextEdit()
+        self.account_info_text.setReadOnly(True)
+        info_form_layout.addRow(self.account_info_text)
+
+        self.transaction_history_table = QTableWidget()
+        self.transaction_history_table.setColumnCount(5)
+        self.transaction_history_table.setHorizontalHeaderLabels(["Date", "Type", "Amount", "Description", "Status"])
+        self.transaction_history_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.transaction_history_table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        info_form_layout.addRow(self.transaction_history_table)
+
+        info_layout.addWidget(info_form)
+
+        # Add tabs
         tabs.addTab(create_account_tab, "Create Account")
         tabs.addTab(transaction_tab, "Transactions")
-        
-        layout.addWidget(tabs)
-        
-        # Logout Button
-        logout_btn = QPushButton("Logout")
-        logout_btn.clicked.connect(self.logout)
-        logout_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 8px;")
-        layout.addWidget(logout_btn)
-        
-        self.setLayout(layout)
-    
-    def load_data(self):
-        pass  # No initial data to load
-    
+        tabs.addTab(info_tab, "Account Info")
+
     def create_account(self):
-        cust_data = {
-            'cust_name': self.cust_name_input.text(),
-            'dob': self.cust_dob_input.date().toString("yyyy-MM-dd"),
-            'phone': int(self.cust_phone_input.text()) if self.cust_phone_input.text() else 0,
-            'city': self.cust_city_input.text(),
-            'address': self.cust_address_input.text(),
-            'email': self.cust_email_input.text()
-        }
-        
-        # Validate data
-        if not cust_data['cust_name']:
-            QMessageBox.warning(self, "Error", "Please enter customer name")
-            return
-        
+        # Get customer details
+        cust_name = self.cust_name_input.text()
+        dob = self.cust_dob_input.date().toString("yyyy-MM-dd")
+        phone = self.cust_phone_input.text()
+        city = self.cust_city_input.text()
+        address = self.cust_address_input.text()
+        email = self.cust_email_input.text()
+        account_type = self.account_type_combo.currentText()
+
         try:
-            # Create customer
-            cust_id = self.db_manager.create_customer(cust_data)
-            
-            # Create account
-            account_type = self.account_type_combo.currentText()
             initial_deposit = float(self.initial_deposit_input.text())
-            
-            account_no = self.db_manager.create_account(cust_id, account_type, initial_deposit)
-            
-            # Show success message
-            msg = QMessageBox()
-            msg.setIcon(QMessageBox.Information)
-            msg.setWindowTitle("Account Created Successfully")
-            msg.setText(f"Account created successfully!\n\nCustomer ID: {cust_id}\nAccount Number: {account_no}")
-            msg.setStandardButtons(QMessageBox.Ok)
-            msg.exec_()
-            
+        except ValueError:
+            initial_deposit = 0.0
+
+        if not cust_name or not phone or not city or not address or not email:
+            QMessageBox.warning(self, "Error", "Please fill all required customer fields")
+            return
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        try:
+            # Generate customer ID
+            cust_id = random.randint(10000, 99999)
+
+            # Insert customer
+            cursor.execute("""
+            INSERT INTO customer (cust_id, cust_name, dob, phone, city, address, email)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (cust_id, cust_name, dob, phone, city, address, email))
+
+            # Generate account number
+            account_no = random.randint(10000, 99999)
+
+            # Insert account
+            cursor.execute("""
+            INSERT INTO accounts (account_no, cust_id, balance, account_type)
+            VALUES (?, ?, ?, ?)
+            """, (account_no, cust_id, initial_deposit, account_type))
+
+            # If initial deposit > 0, create transaction
+            if initial_deposit > 0:
+                cursor.execute("""
+                INSERT INTO transactions (account_no, transaction_type, transaction_amount, transaction_description, transaction_status)
+                VALUES (?, ?, ?, ?, ?)
+                """, (account_no, "Deposit", initial_deposit, "Initial deposit", "Completed"))
+
+            conn.commit()
+
+            QMessageBox.information(
+                self, "Account Created",
+                f"Account created successfully!\n\nCustomer ID: {cust_id}\nAccount Number: {account_no}\nAccount Type: {account_type}\nInitial Balance: {initial_deposit:,.2f}"
+            )
+
             # Clear form
             self.cust_name_input.clear()
             self.cust_phone_input.clear()
             self.cust_city_input.clear()
             self.cust_address_input.clear()
             self.cust_email_input.clear()
-            self.initial_deposit_input.setText("0")
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to create account: {str(e)}")
-    
-    def check_balance(self):
-        account_no = self.account_no_input.text()
-        if not account_no:
-            QMessageBox.warning(self, "Error", "Please enter an account number")
-            return
-        
-        try:
-            balance = self.db_manager.get_account_balance(int(account_no))
-            if balance is not None:
-                self.balance_display.setText(f"Balance: {balance} ETB")
-                
-                # Load transaction history
-                transactions = self.db_manager.get_account_transactions(int(account_no))
-                self.trans_history_table.setRowCount(len(transactions))
-                
-                for row, trans in enumerate(transactions):
-                    for col, data in enumerate(trans):
-                        item = QTableWidgetItem(str(data))
-                        item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-                        self.trans_history_table.setItem(row, col, item)
-            else:
-                QMessageBox.warning(self, "Error", "Account not found")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to check balance: {str(e)}")
-    
+            self.initial_deposit_input.clear()
+
+        except sqlite3.IntegrityError as e:
+            QMessageBox.warning(self, "Error", f"Failed to create account: {str(e)}")
+        finally:
+            conn.close()
+
     def process_transaction(self):
         account_no = self.account_no_input.text()
+        transaction_type = self.transaction_type_combo.currentText()
+        description = self.description_input.text()
+
+        try:
+            amount = float(self.amount_input.text())
+        except ValueError:
+            QMessageBox.warning(self, "Error", "Please enter a valid amount")
+            return
+
         if not account_no:
             QMessageBox.warning(self, "Error", "Please enter an account number")
             return
-        
-        try:
-            account_no = int(account_no)
-            trans_type = self.trans_type_combo.currentText()
-            amount = float(self.trans_amount_input.text())
-            
-            if amount <= 0:
-                QMessageBox.warning(self, "Error", "Amount must be positive")
-                return
-            
-            if trans_type == 'Deposit':
-                self.db_manager.deposit(account_no, amount)
-                QMessageBox.information(self, "Success", "Deposit successful")
-            elif trans_type == 'Withdrawal':
-                if self.db_manager.withdraw(account_no, amount):
-                    QMessageBox.information(self, "Success", "Withdrawal successful")
-                else:
-                    QMessageBox.warning(self, "Error", "Insufficient funds")
-            
-            # Update balance display and transaction history
-            self.check_balance()
-            self.trans_amount_input.clear()
-            
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Transaction failed: {str(e)}")
-    
-    def logout(self):
-        self.main_window.stacked_widget.setCurrentIndex(0)
 
-class ManagerDashboard(QWidget):
-    def __init__(self, db_manager, main_window, current_user):
-        super().__init__()
-        self.db_manager = db_manager
-        self.main_window = main_window
-        self.current_user = current_user
-        self.init_ui()
-        
-    def init_ui(self):
-        layout = QVBoxLayout()
-        
-        # Header
-        header = QLabel("Manager Dashboard - Time International Bank")
-        header.setFont(QFont('Arial', 16, QFont.Bold))
-        header.setAlignment(Qt.AlignCenter)
-        layout.addWidget(header)
-        
-        # User info
-        user_info = QLabel(f"Welcome, {self.current_user['emp_name']} (ID: {self.current_user['emp_id']})")
-        user_info.setAlignment(Qt.AlignRight)
-        layout.addWidget(user_info)
-        
-        # Metrics Group
+        if amount <= 0:
+            QMessageBox.warning(self, "Error", "Amount must be greater than 0")
+            return
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        try:
+            # Check if account exists
+            cursor.execute("SELECT balance, account_status FROM accounts WHERE account_no = ?", (account_no,))
+            account = cursor.fetchone()
+
+            if not account:
+                QMessageBox.warning(self, "Error", "Account not found")
+                return
+
+            balance, status = account
+
+            if status != "Active":
+                QMessageBox.warning(self, "Error", f"Account is {status}")
+                return
+
+            # Process transaction
+            if transaction_type == "Withdrawal":
+                if balance < amount:
+                    QMessageBox.warning(self, "Error", "Insufficient funds")
+                    return
+
+                new_balance = balance - amount
+            else:  # Deposit
+                new_balance = balance + amount
+
+            # Update account balance
+            cursor.execute("UPDATE accounts SET balance = ? WHERE account_no = ?", (new_balance, account_no))
+
+            # Record transaction
+            cursor.execute("""
+            INSERT INTO transactions (account_no, transaction_type, transaction_amount, transaction_description, transaction_status)
+            VALUES (?, ?, ?, ?, ?)
+            """, (account_no, transaction_type, amount, description, "Completed"))
+
+            conn.commit()
+
+            QMessageBox.information(
+                self, "Transaction Successful",
+                f"Transaction processed successfully!\n\nAccount: {account_no}\nType: {transaction_type}\nAmount: {amount:,.2f}\nNew Balance: {new_balance:,.2f}"
+            )
+
+            # Clear form
+            self.amount_input.clear()
+            self.description_input.clear()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to process transaction: {str(e)}")
+        finally:
+            conn.close()
+
+    def search_account(self):
+        search_term = self.search_account_input.text()
+
+        if not search_term:
+            QMessageBox.warning(self, "Error", "Please enter search term")
+            return
+
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        try:
+            # Try to search by account number first
+            if search_term.isdigit():
+                cursor.execute("""
+                SELECT a.account_no, c.cust_name, a.balance, a.account_type, a.opened_date, a.account_status
+                FROM accounts a
+                JOIN customer c ON a.cust_id = c.cust_id
+                WHERE a.account_no = ?
+                """, (int(search_term),))
+            else:
+                # Search by customer name
+                cursor.execute("""
+                SELECT a.account_no, c.cust_name, a.balance, a.account_type, a.opened_date, a.account_status
+                FROM accounts a
+                JOIN customer c ON a.cust_id = c.cust_id
+                WHERE c.cust_name LIKE ?
+                LIMIT 1
+                """, (f"%{search_term}%",))
+
+            account = cursor.fetchone()
+
+            if not account:
+                QMessageBox.warning(self, "Not Found", "No matching account found")
+                return
+
+            account_no, cust_name, balance, account_type, opened_date, status = account
+
+            # Display account info
+            info_text = f"""
+            <b>Account Number:</b> {account_no}<br>
+            <b>Customer Name:</b> {cust_name}<br>
+            <b>Account Type:</b> {account_type}<br>
+            <b>Status:</b> {status}<br>
+            <b>Balance:</b> {balance:,.2f}<br>
+            <b>Opened Date:</b> {opened_date}<br>
+            """
+
+            self.account_info_text.setHtml(info_text)
+
+            # Load transaction history
+            cursor.execute("""
+            SELECT transaction_date, transaction_type, transaction_amount, transaction_description, transaction_status
+            FROM transactions
+            WHERE account_no = ?
+            ORDER BY transaction_date DESC
+            LIMIT 10
+            """, (account_no,))
+
+            transactions = cursor.fetchall()
+
+            self.transaction_history_table.setRowCount(len(transactions))
+
+            for row_idx, transaction in enumerate(transactions):
+                for col_idx, value in enumerate(transaction):
+                    if col_idx == 2:  # Amount column
+                        item = QTableWidgetItem(f"{value:,.2f}")
+                    else:
+                        item = QTableWidgetItem(str(value))
+
+                    item.setTextAlignment(Qt.AlignCenter)
+                    self.transaction_history_table.setItem(row_idx, col_idx, item)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Search failed: {str(e)}")
+        finally:
+            conn.close()
+
+
+class ManagerDashboard(DashboardTemplate):
+    def __init__(self, emp_id, emp_name):
+        super().__init__(emp_id, emp_name, "Manager Dashboard")
+
+        # Content layout
+        content_layout = QVBoxLayout()
+        self.content_area.setLayout(content_layout)
+
+        # Metrics display
         metrics_group = QGroupBox("Bank Metrics")
         metrics_layout = QVBoxLayout()
-        
-        self.metrics_label = QLabel()
-        self.metrics_label.setFont(QFont('Arial', 12))
-        metrics_layout.addWidget(self.metrics_label)
-        
         metrics_group.setLayout(metrics_layout)
-        layout.addWidget(metrics_group)
-        
-        # Employees Table
-        self.employees_table = QTableWidget()
-        self.employees_table.setColumnCount(7)
-        self.employees_table.setHorizontalHeaderLabels([
-            "ID", "Name", "Gender", "Department", "Branch", "Job Title", "Salary"
-        ])
-        self.employees_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        layout.addWidget(self.employees_table)
-        
-        # Logout Button
-        logout_btn = QPushButton("Logout")
-        logout_btn.clicked.connect(self.logout)
-        logout_btn.setStyleSheet("background-color: #607D8B; color: white; padding: 8px;")
-        layout.addWidget(logout_btn)
-        
-        self.setLayout(layout)
-    
-    def load_data(self):
-        # Load metrics
-        metrics = self.db_manager.get_bank_metrics()
-        metrics_text = (
-            f"Total Employees: {metrics['total_employees']}\n"
-            f"Total Accounts: {metrics['total_accounts']}\n"
-            f"Total Bank Balance: {metrics['total_bank_balance']} ETB"
-        )
-        self.metrics_label.setText(metrics_text)
-        
-        # Load employees
-        employees = self.db_manager.get_all_employees()
-        self.employees_table.setRowCount(len(employees))
-        
-        for row, emp in enumerate(employees):
-            for col, data in enumerate(emp):
-                item = QTableWidgetItem(str(data))
-                item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-                self.employees_table.setItem(row, col, item)
-    
-    def logout(self):
-        self.main_window.stacked_widget.setCurrentIndex(0)
 
-class MainWindow(QMainWindow):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("Time International Bank Management System")
-        self.setGeometry(100, 100, 1000, 700)
-        
-        # Initialize database
-        self.db_manager = DatabaseManager()
-        
-        # Create stacked widget for different views
-        self.stacked_widget = QStackedWidget()
-        
-        # Create login window
-        self.login_window = LoginWindow(self.db_manager, self)
-        self.stacked_widget.addWidget(self.login_window)
-        
-        # Initialize dashboard placeholders
-        self.hr_dashboard = None
-        self.accountant_dashboard = None
-        self.manager_dashboard = None
-        
-        self.setCentralWidget(self.stacked_widget)
-    
-    def create_dashboards(self, current_user):
-        # Remove existing dashboards if they exist
-        if self.hr_dashboard:
-            self.stacked_widget.removeWidget(self.hr_dashboard)
-        if self.accountant_dashboard:
-            self.stacked_widget.removeWidget(self.accountant_dashboard)
-        if self.manager_dashboard:
-            self.stacked_widget.removeWidget(self.manager_dashboard)
-        
-        # Create new dashboards
-        self.hr_dashboard = HRDashboard(self.db_manager, self, current_user)
-        self.accountant_dashboard = AccountantDashboard(self.db_manager, self, current_user)
-        self.manager_dashboard = ManagerDashboard(self.db_manager, self, current_user)
-        
-        # Add them to stacked widget
-        self.stacked_widget.addWidget(self.hr_dashboard)
-        self.stacked_widget.addWidget(self.accountant_dashboard)
-        self.stacked_widget.addWidget(self.manager_dashboard)
-    
-    def closeEvent(self, event):
-        self.db_manager.close()
-        event.accept()
+        self.metrics_text = QTextEdit()
+        self.metrics_text.setReadOnly(True)
+        metrics_layout.addWidget(self.metrics_text)
+
+        refresh_button = QPushButton("Refresh Metrics")
+        refresh_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 8px;
+                border-radius: 5px;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+        """)
+        refresh_button.clicked.connect(self.update_metrics)
+        metrics_layout.addWidget(refresh_button)
+
+        content_layout.addWidget(metrics_group)
+
+        # Recent transactions
+        transactions_group = QGroupBox("Recent Transactions")
+        transactions_layout = QVBoxLayout()
+        transactions_group.setLayout(transactions_layout)
+
+        self.transactions_table = QTableWidget()
+        self.transactions_table.setColumnCount(6)
+        self.transactions_table.setHorizontalHeaderLabels(
+            ["Date", "Account", "Type", "Amount", "Description", "Status"])
+        self.transactions_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.transactions_table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        transactions_layout.addWidget(self.transactions_table)
+
+        content_layout.addWidget(transactions_group)
+
+        # Employee actions
+        actions_group = QGroupBox("Recent Employee Actions")
+        actions_layout = QVBoxLayout()
+        actions_group.setLayout(actions_layout)
+
+        self.actions_table = QTableWidget()
+        self.actions_table.setColumnCount(5)
+        self.actions_table.setHorizontalHeaderLabels(["Date", "Employee ID", "Action", "Performed By", "Details"])
+        self.actions_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.actions_table.setEditTriggers(QTableWidget.NoEditTriggers)
+
+        actions_layout.addWidget(self.actions_table)
+
+        content_layout.addWidget(actions_group)
+
+        # Load initial data
+        self.update_metrics()
+        self.update_recent_transactions()
+        self.update_recent_actions()
+
+    def update_metrics(self):
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        try:
+            # Get total employees
+            cursor.execute("SELECT COUNT(*) FROM employee WHERE job_title IS NOT NULL")
+            total_employees = cursor.fetchone()[0]
+
+            # Get total accounts
+            cursor.execute("SELECT COUNT(*) FROM accounts")
+            total_accounts = cursor.fetchone()[0]
+
+            # Get total balance
+            cursor.execute("SELECT SUM(balance) FROM accounts")
+            total_balance = cursor.fetchone()[0] or 0
+
+            # Get employees by department
+            cursor.execute("""
+            SELECT d.dep_name, COUNT(e.emp_id) 
+            FROM employee e
+            JOIN department d ON e.dep_id = d.dep_id
+            WHERE e.job_title IS NOT NULL
+            GROUP BY d.dep_name
+            """)
+            dept_counts = cursor.fetchall()
+
+            # Format metrics text
+            metrics_text = f"""
+            <h3>Bank Overview</h3>
+            <p><b>Total Employees:</b> {total_employees:,}</p>
+            <p><b>Total Accounts:</b> {total_accounts:,}</p>
+            <p><b>Total Bank Balance:</b> {total_balance:,.2f}</p>
+
+            <h3>Employees by Department</h3>
+            """
+
+            for dept, count in dept_counts:
+                metrics_text += f"<p><b>{dept}:</b> {count:,}</p>"
+
+            self.metrics_text.setHtml(metrics_text)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load metrics: {str(e)}")
+        finally:
+            conn.close()
+
+    def update_recent_transactions(self):
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+            SELECT t.transaction_date, t.account_no, t.transaction_type, t.transaction_amount, 
+                   t.transaction_description, t.transaction_status
+            FROM transactions t
+            ORDER BY t.transaction_date DESC
+            LIMIT 10
+            """)
+
+            transactions = cursor.fetchall()
+
+            self.transactions_table.setRowCount(len(transactions))
+
+            for row_idx, transaction in enumerate(transactions):
+                for col_idx, value in enumerate(transaction):
+                    if col_idx == 3:  # Amount column
+                        item = QTableWidgetItem(f"{value:,.2f}")
+                    else:
+                        item = QTableWidgetItem(str(value))
+
+                    item.setTextAlignment(Qt.AlignCenter)
+                    self.transactions_table.setItem(row_idx, col_idx, item)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load transactions: {str(e)}")
+        finally:
+            conn.close()
+
+    def update_recent_actions(self):
+        conn = sqlite3.connect(DB_NAME)
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("""
+            SELECT a.action_date, a.emp_id, a.action_type, e.emp_name, a.details
+            FROM employee_actions a
+            JOIN employee e ON a.emp_id = e.emp_id
+            ORDER BY a.action_date DESC
+            LIMIT 10
+            """)
+
+            actions = cursor.fetchall()
+
+            self.actions_table.setRowCount(len(actions))
+
+            for row_idx, action in enumerate(actions):
+                for col_idx, value in enumerate(action):
+                    item = QTableWidgetItem(str(value))
+                    item.setTextAlignment(Qt.AlignCenter)
+                    self.actions_table.setItem(row_idx, col_idx, item)
+
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Failed to load employee actions: {str(e)}")
+        finally:
+            conn.close()
+
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    
+
     # Set application style
-    app.setStyle('Fusion')
-    
-    # Create and show main window
-    window = MainWindow()
-    window.show()
-    
+    app.setStyle("Fusion")
+
+    # Set application font
+    font = QFont()
+    font.setFamily("Segoe UI")
+    font.setPointSize(10)
+    app.setFont(font)
+
+    # Create and show login window
+    login_window = LoginWindow()
+    login_window.show()
+
     sys.exit(app.exec_())
+
+
+    
